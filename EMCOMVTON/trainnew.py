@@ -12,6 +12,14 @@ from networks import GMM, UnetGenerator, VGGLoss, load_checkpoint, save_checkpoi
 from tensorboardX import SummaryWriter
 from visualization import board_add_image, board_add_images
 
+#python trainnew.py --name tom_train_new --stage TOM --workers 4 --save_count 5000 --shuffle
+
+#python trainnew.py --name gmm_train_new/bottom --clothtype=bottom --stage GMM
+# --workers 4 --save_count 5000 --shuffle
+
+
+#python trainnew.py --name gmm_train_new/top --clothtype=top --stage GMM
+# --workers 4 --save_count 5000 --shuffle
 
 def get_opt():
     parser = argparse.ArgumentParser()
@@ -24,6 +32,7 @@ def get_opt():
     parser.add_argument("--datamode", default = "train")
     parser.add_argument("--stage", default = "GMM")
     parser.add_argument("--clothtype", default = "bottom")#top and bottom Tuan
+    parser.add_argument("--withbg", default = False)#with background or not Tuan
     parser.add_argument("--data_list", default = "train_pairs.txt")
     parser.add_argument("--fine_width", type=int, default = 192)
     parser.add_argument("--fine_height", type=int, default = 256)
@@ -74,9 +83,9 @@ def train_gmm(opt, train_loader, model, board):
         warped_mask = F.grid_sample(cm, grid, padding_mode='zeros')
         warped_grid = F.grid_sample(im_g, grid, padding_mode='zeros')
 
-        visuals = [ [im_h, shape, im_pose], 
-                   [c, warped_cloth, im_c], 
-                   [warped_grid, (warped_cloth+im)*0.5, im]]
+        visuals = [ [im_h, shape, im_pose],
+                   [c, warped_cloth, im_c],
+                   [warped_grid, (warped_cloth*0.90+im*0.10), im]]
         
         loss = criterionL1(warped_cloth, im_c)    
         optimizer.zero_grad()
@@ -120,21 +129,27 @@ def train_tom(opt, train_loader, model, board):
         agnostic = inputs['agnostic'].cuda()
         c = inputs['cloth'].cuda()
         cm = inputs['cloth_mask'].cuda()
-        
-        outputs = model(torch.cat([agnostic, c],1))
+        cbottom = inputs['cloth_bottom'].cuda()
+        cmbottom = inputs['cloth_mask_bottom'].cuda()
+
+        outputs = model(torch.cat([agnostic, c, cbottom],1))
         p_rendered, m_composite = torch.split(outputs, 3,1)
+        m_composite, m_composite_bottom = torch.split(m_composite, 1,1)
         p_rendered = F.tanh(p_rendered)
         m_composite = F.sigmoid(m_composite)
-        p_tryon = c * m_composite+ p_rendered * (1 - m_composite)
+        m_composite_bottom = F.sigmoid(m_composite_bottom)
+        p_tryon = c * m_composite+ p_rendered * (1 - m_composite - m_composite_bottom) + cbottom * m_composite_bottom
 
         visuals = [ [im_h, shape, im_pose], 
-                   [c, cm*2-1, m_composite*2-1], 
+                   [c, cm*2-1, m_composite*2-1],
+                    [cbottom, cmbottom*2-1, m_composite_bottom*2-1],
                    [p_rendered, p_tryon, im]]
             
         loss_l1 = criterionL1(p_tryon, im)
         loss_vgg = criterionVGG(p_tryon, im)
         loss_mask = criterionMask(m_composite, cm)
-        loss = loss_l1 + loss_vgg + loss_mask
+        loss_mask_bottom = criterionMask(m_composite_bottom, cmbottom)
+        loss = loss_l1 + loss_vgg + loss_mask + loss_mask_bottom
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -144,12 +159,13 @@ def train_tom(opt, train_loader, model, board):
             board.add_scalar('metric', loss.item(), step+1)
             board.add_scalar('L1', loss_l1.item(), step+1)
             board.add_scalar('VGG', loss_vgg.item(), step+1)
-            board.add_scalar('MaskL1', loss_mask.item(), step+1)
+            board.add_scalar('MaskTopL1', loss_mask.item(), step+1)
+            board.add_scalar('MaskBottomL1', loss_mask_bottom.item(), step+1)
             #board.add_graph(model, torch.cat([agnostic, c],1))
             t = time.time() - iter_start_time
-            print('step: %8d, time: %.3f, loss: %.4f, l1: %.4f, vgg: %.4f, mask: %.4f' 
+            print('step: %8d, time: %.3f, loss: %.4f, l1: %.4f, vgg: %.4f, mask_top: %.4f, mask_bottom: %.4f'
                     % (step+1, t, loss.item(), loss_l1.item(), 
-                    loss_vgg.item(), loss_mask.item()), flush=True)
+                    loss_vgg.item(), loss_mask.item(), loss_mask_bottom.item()), flush=True)
 
         if (step+1) % opt.save_count == 0:
             save_checkpoint(model, os.path.join(opt.checkpoint_dir, opt.name, 'step_%06d.pth' % (step+1)))
@@ -180,7 +196,8 @@ def main():
         train_gmm(opt, train_loader, model, board)
         save_checkpoint(model, os.path.join(opt.checkpoint_dir, opt.name, 'gmm_final.pth'))
     elif opt.stage == 'TOM':
-        model = UnetGenerator(25, 4, 6, ngf=64, norm_layer=nn.InstanceNorm2d)
+        #model = UnetGenerator(25, 4, 6, ngf=64, norm_layer=nn.InstanceNorm2d)#add bottom 3 channel 25-->28
+        model = UnetGenerator(28, 5, 6, ngf=64, norm_layer=nn.InstanceNorm2d)#add bottom 3 channel 25-->28, generate one mask output for bottom 4--> 5
         if not opt.checkpoint =='' and os.path.exists(opt.checkpoint):
             print("Loading checkpoint!!!")
             load_checkpoint(model, opt.checkpoint)

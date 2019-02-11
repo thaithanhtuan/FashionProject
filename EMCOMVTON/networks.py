@@ -124,15 +124,15 @@ class FeatureRegression(nn.Module):
             self.tanh.cuda()
 
     def forward(self, x):
-        print("x.shape1:", x.shape)#[4, 192, 16, 12]
+        #print("x.shape1:", x.shape)#[4, 192, 16, 12]
         x = self.conv(x)
-        print("x.shapeconv:", x.shape)#[4, 64, 4, 3]
+        #print("x.shapeconv:", x.shape)#[4, 64, 4, 3]
         x = x.view(x.size(0), -1)
-        print("x.shapeview:", x.shape)#[4, 768]
+        #print("x.shapeview:", x.shape)#[4, 768]
         x = self.linear(x)
-        print("x.shapelinear:", x.shape)#[4, 50]
+        #print("x.shapelinear:", x.shape)#[4, 50]
         x = self.tanh(x)
-        print("x.shapetanh:", x.shape)#[4, 50]
+        #print("x.shapetanh:", x.shape)#[4, 50]
         return x
 
 class AffineGridGen(nn.Module):

@@ -3,6 +3,7 @@ import torch
 from PIL import Image
 import time
 import os
+import numpy as np
 
 def tensor_for_board(img_tensor):
     # map into [0,1]
@@ -24,6 +25,20 @@ def tensor_list_for_board(img_tensors_list):
     canvas = torch.FloatTensor(batch_size, channel, canvas_h, canvas_w).fill_(0.5)
     for i, img_tensors in enumerate(img_tensors_list):
         for j, img_tensor in enumerate(img_tensors):
+            if(i==2):
+                if(j == 2):
+                    tensor = (img_tensor.clone() + 1) * 0.5
+                    tensor  = tensor.cpu()
+                    array = tensor.numpy().astype('float')
+                    flag = True
+                    array0 = array[3]
+                    array0 = array0.squeeze()
+                    if(np.max(array0)>1 or np.min(array0)<0):
+                        print("max:",np.max(array))
+                        print("min:",np.min(array))
+
+
+
             offset_h = i * height
             offset_w = j * width
             tensor = tensor_for_board(img_tensor)
@@ -38,13 +53,15 @@ def board_add_image(board, tag_name, img_tensor, step_count):
         board.add_image('%s/%03d' % (tag_name, i), img, step_count)
 
 
+
 def board_add_images(board, tag_name, img_tensors_list, step_count):
     tensor = tensor_list_for_board(img_tensors_list)
 
     for i, img in enumerate(tensor):
-        board.add_image('%s/%03d' % (tag_name, i), img, step_count)
+        #board.add_image('%s/%03d' % (tag_name, i), img, step_count)
+        board.add_image('%s/%03d/%s' % (tag_name, i, img.shape), img, step_count)
 
-def save_images(img_tensors, img_names, save_dir):
+def save_images(img_tensors, img_names, save_dir, isCloth):
     for img_tensor, img_name in zip(img_tensors, img_names):
         tensor = (img_tensor.clone()+1)*0.5 * 255
         tensor = tensor.cpu().clamp(0,255)
@@ -54,7 +71,9 @@ def save_images(img_tensors, img_names, save_dir):
             array = array.squeeze(0)
         elif array.shape[0] == 3:
             array = array.swapaxes(0, 1).swapaxes(1, 2)
-            
-        #Image.fromarray(array).save(os.path.join(save_dir, img_name  ))
-        Image.fromarray(array).save(os.path.join(save_dir, str(time.time())+img_name  ))
+        if isCloth:
+            Image.fromarray(array).save(os.path.join(save_dir, img_name  ))
+        else:
+            Image.fromarray(array).save(os.path.join(save_dir, img_name.split(".")[0] + ".png"))
+        #Image.fromarray(array).save(os.path.join(save_dir, str(time.time())+img_name  ))
 
