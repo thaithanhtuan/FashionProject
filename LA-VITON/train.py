@@ -87,30 +87,32 @@ def train_gmm(opt, train_loader, model, board):
 
         Gy = grid[:, :, :, 1]
         starttime = time.time()
+
+        dtx = torch.zeros([Gx.shape[0],Gx.shape[1],Gx.shape[2]])
+        dty = torch.zeros([Gx.shape[0],Gx.shape[1],Gx.shape[2]])
+
         Lgic = 0
         print("start")
         for n in range(Gx.shape[0]):
+            for y in range(0, Gx.shape[1] - 2):
+                for x in range(0, Gx.shape[2] - 2):
+                    dtx[n, y, x] = DT(Gx[n, y, x], Gy[n, y, x],Gx[n, y, x + 1], Gy[n, y, x + 1])
+                    dty[n, y, x] = DT(Gx[n, y, x], Gy[n, y, x],Gx[n , y + 1, x], Gy[n, y + 1, x])
+
+        for n in range(Gx.shape[0]):
             for y in range(1, Gx.shape[1] - 2):
                 for x in range(1, Gx.shape[2] - 2):
-                    # dt1 = DT|Gx(n,x,y),Gx(n,x+1,y)|
-                    dt1 = DT(Gx[n, y, x], Gy[n, y, x],Gx[n, y, x + 1], Gy[n, y, x + 1])
-                    # dt2 = DT|Gx(n,x,y),Gx(n,x-1,y)|
-                    dt2 = DT(Gx[n, y, x], Gy[n, y, x],Gx[n, y, x - 1], Gy[n, y, x - 1])
-                    # dt3 = DT|Gy(n,x,y),Gy(n,x,y+1)|
-                    dt3 = DT(Gx[n, y, x], Gy[n, y, x],Gx[n , y + 1, x], Gy[n, y + 1, x])
-                    # dt4 = DT|Gy(n,x,y),Gy(n,x,y-1)|
-                    dt4 = DT(Gx[n, y, x], Gy[n, y, x], Gx[n, y - 1, x], Gy[n, y - 1, x])
+                    Lgic = Lgic + torch.abs(dtx[n, y - 1, x - 1] - dtx[n, y - 1, x]) + torch.abs(dty[n, y - 1, x - 1] - dty[n, y , x - 1])
 
-                    loss = torch.abs(dt1 - dt2) + torch.abs(dt3 - dt4)
-
-                    Lgic = Lgic + loss
         endtime = time.time()
         print("time:", endtime - starttime)
         Lgic = Lgic/(Gx.shape[0]*Gx.shape[1]*Gx.shape[2])
         Lwarp = criterionL1(warped_cloth, im_c)
         loss = Lwarp + Lgic
         optimizer.zero_grad()
+        print("begin backward: ", time.time() - endtime)
         loss.backward()
+        print("finish backward: ", time.time() - endtime)
         optimizer.step()
             
         if (step+1) % opt.display_count == 0:
@@ -123,6 +125,7 @@ def train_gmm(opt, train_loader, model, board):
 
         if (step+1) % opt.save_count == 0:
             save_checkpoint(model, os.path.join(opt.checkpoint_dir, opt.name, 'step_%06d.pth' % (step+1)))
+        print("finis one step: ", time.time() - endtime)
 
 
 def train_tom(opt, train_loader, model, board):
