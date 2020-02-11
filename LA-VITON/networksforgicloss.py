@@ -7,30 +7,32 @@ class DT(nn.Module):
         return dt
 
 class GicLoss(nn.Module):
-    def __init__(self, batch_size, imageheight, imagewidth):
+    def __init__(self,opt):
         super(GicLoss, self).__init__()
         self.dT = DT()
-        self.dtx = torch.zeros([batch_size, imageheight, imagewidth])
-        self.dty = torch.zeros([batch_size, imageheight, imagewidth])
+        self.opt = opt
 
 
-    def buildLoss(self,  Gx, Gy):
-        Lgic = 0
-        for n in range(Gx.shape[0]):
-            for y in range(0, Gx.shape[1] - 2):
-                for x in range(0, Gx.shape[2] - 2):
-                    self.dtx[n, y, x] = self.dT(Gx[n, y, x], Gy[n, y, x], Gx[n, y, x + 1], Gy[n, y, x + 1])
-                    self.dty[n, y, x] = self.dT(Gx[n, y, x], Gy[n, y, x], Gx[n, y + 1, x], Gy[n, y + 1, x])
-
-        for n in range(Gx.shape[0]):
-            for y in range(1, Gx.shape[1] - 2):
-                for x in range(1, Gx.shape[2] - 2):
-                    Lgic = Lgic + torch.abs(self.dtx[n, y - 1, x - 1] - self.dtx[n, y - 1, x]) + torch.abs(
-                        self.dty[n, y - 1, x - 1] - self.dty[n, y, x - 1])
-        return Lgic/(Gx.shape[0]*Gx.shape[1]*Gx.shape[2])
 
     def forward(self, grid):
         Gx = grid[:, :, :, 0]
         Gy = grid[:, :, :, 1]
+        Gxcenter = Gx[:, 1:self.opt.fine_height - 1, 1:self.opt.fine_width - 1]
+        Gxup = Gx[:, 0:self.opt.fine_height - 2, 1:self.opt.fine_width - 1]
+        Gxdown = Gx[:, 2:self.opt.fine_height, 1:self.opt.fine_width - 1]
+        Gxleft = Gx[:, 1:self.opt.fine_height - 1, 0:self.opt.fine_width - 2]
+        Gxright = Gx[:, 1:self.opt.fine_height - 1, 2:self.opt.fine_width]
 
-        return self.buildLoss(Gx=Gx, Gy=Gy)
+        Gycenter = Gy[:, 1:self.opt.fine_height - 1, 1:self.opt.fine_width - 1]
+        Gyup = Gy[:, 0:self.opt.fine_height - 2, 1:self.opt.fine_width - 1]
+        Gydown = Gy[:, 2:self.opt.fine_height, 1:self.opt.fine_width - 1]
+        Gyleft = Gy[:, 1:self.opt.fine_height - 1, 0:self.opt.fine_width - 2]
+        Gyright = Gy[:, 1:self.opt.fine_height - 1, 2:self.opt.fine_width]
+
+        dtleft = self.dT(Gxleft, Gyleft, Gxcenter, Gycenter)
+        dtright = self.dT(Gxright, Gyright, Gxcenter, Gycenter)
+        dtup = self.dT(Gxup, Gyup, Gxcenter, Gycenter)
+        dtdown = self.dT(Gxdown, Gydown, Gxcenter, Gycenter)
+
+        return torch.sum(torch.abs(dtleft - dtright) + torch.abs(dtup - dtdown))
+
