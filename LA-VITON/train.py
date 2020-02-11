@@ -2,12 +2,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 import argparse
 import os
 import time
 from cp_dataset import CPDataset, CPDataLoader
-from networks import GMM, UnetGenerator, VGGLoss, load_checkpoint, save_checkpoint
+from networks import GMM, UnetGenerator, VGGLoss, load_checkpoint, save_checkpoint, GicLoss
 
 from tensorboardX import SummaryWriter
 from visualization import board_add_image, board_add_images
@@ -42,9 +43,6 @@ def get_opt():
     opt = parser.parse_args()
     return opt
 
-def DT(x1,y1,x2,y2):
-    dt = torch.sqrt(torch.mul(x1- x2, x1- x2) + torch.mul(y1-y2,y1-y2))
-    return dt
 
 def train_gmm(opt, train_loader, model, board):
     model.cuda()
@@ -52,12 +50,13 @@ def train_gmm(opt, train_loader, model, board):
 
     # criterion
     criterionL1 = nn.L1Loss()
-    
+    gicloss = GicLoss(opt )
+    #criterionVGG = VGGLoss()
     # optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=opt.lr, betas=(0.5, 0.999))
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda = lambda step: 1.0 -
             max(0, step - opt.keep_step) / float(opt.decay_step + 1))
-    
+
     for step in range(opt.keep_step + opt.decay_step):
         iter_start_time = time.time()
         inputs = train_loader.next_batch()
@@ -83,36 +82,18 @@ def train_gmm(opt, train_loader, model, board):
         # shape of grid: N, Hout, Wout,2: N x 256 x 192 x 2
         # grid shape: N x 256 x 192 x 2
         #print("grid shape: ", grid.shape)
-        Gx = grid[:, :, :, 0]
 
-        Gy = grid[:, :, :, 1]
-        starttime = time.time()
-
-        dtx = torch.zeros([Gx.shape[0],Gx.shape[1],Gx.shape[2]])
-        dty = torch.zeros([Gx.shape[0],Gx.shape[1],Gx.shape[2]])
-
-        Lgic = 0
-        print("start")
-        for n in range(Gx.shape[0]):
-            for y in range(0, Gx.shape[1] - 2):
-                for x in range(0, Gx.shape[2] - 2):
-                    dtx[n, y, x] = DT(Gx[n, y, x], Gy[n, y, x],Gx[n, y, x + 1], Gy[n, y, x + 1])
-                    dty[n, y, x] = DT(Gx[n, y, x], Gy[n, y, x],Gx[n , y + 1, x], Gy[n, y + 1, x])
-
-        for n in range(Gx.shape[0]):
-            for y in range(1, Gx.shape[1] - 2):
-                for x in range(1, Gx.shape[2] - 2):
-                    Lgic = Lgic + torch.abs(dtx[n, y - 1, x - 1] - dtx[n, y - 1, x]) + torch.abs(dty[n, y - 1, x - 1] - dty[n, y , x - 1])
-
-        endtime = time.time()
-        print("time:", endtime - starttime)
-        Lgic = Lgic/(Gx.shape[0]*Gx.shape[1]*Gx.shape[2])
+        #starttime = time.time()
+        Lgic = gicloss(grid)
+        #endtime = time.time()
+        #print("time:", endtime - starttime)
+        Lgic = Lgic/(grid.shape[0]*grid.shape[1]*grid.shape[2])
         Lwarp = criterionL1(warped_cloth, im_c)
         loss = Lwarp + Lgic
         optimizer.zero_grad()
-        print("begin backward: ", time.time() - endtime)
+        #print("begin backward: ", time.time() - endtime)
         loss.backward()
-        print("finish backward: ", time.time() - endtime)
+        #print("finish backward: ", time.time() - endtime)
         optimizer.step()
             
         if (step+1) % opt.display_count == 0:
@@ -121,11 +102,11 @@ def train_gmm(opt, train_loader, model, board):
             board.add_scalar('Lgic', Lgic.item(), step+1)
             board.add_scalar('Lwarp', Lwarp.item(), step+1)
             t = time.time() - iter_start_time
-            print('step: %8d, time: %.3f, loss: %4f, Lgic: %.6f, Lwarp: %.4f, Calgiclosstime: %f' % (step+1, t, loss.item(), Lgic.item(), Lwarp.item(), endtime - starttime), flush=True)
+            print('step: %8d, time: %.3f, loss: %4f, Lgic: %.6f, Lwarp: %.4f' % (step+1, t, loss.item(), Lgic.item(), Lwarp.item()), flush=True)
 
         if (step+1) % opt.save_count == 0:
             save_checkpoint(model, os.path.join(opt.checkpoint_dir, opt.name, 'step_%06d.pth' % (step+1)))
-        print("finis one step: ", time.time() - endtime)
+        #print("finis one step: ", time.time() - endtime)
 
 
 def train_tom(opt, train_loader, model, board):
