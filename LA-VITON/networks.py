@@ -7,6 +7,11 @@ import os
 
 import numpy as np
 import torch.nn.functional as F
+from torch.autograd import Variable
+def expand_dim(tensor,dim,desired_dim_len):
+    sz = list(tensor.size())
+    sz[dim]=desired_dim_len
+    return tensor.expand(tuple(sz))
 
 def weights_init_normal(m):
     classname = m.__class__.__name__
