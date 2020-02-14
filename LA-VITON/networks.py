@@ -500,7 +500,34 @@ class LAGMM(nn.Module):
         theta2 = self.regression2(correlation2)
         grid2 = self.gridGen(theta2)
         return grid2, theta, Ipersp
+    
+class AffineGMM(nn.Module):
+    def __init__(self, opt):
+        super(AffineGMM, self).__init__()
+        self.extractionA = FeatureExtraction(22, ngf=64, n_layers=3, norm_layer=nn.BatchNorm2d)
+        self.extractionB = FeatureExtraction(3, ngf=64, n_layers=3, norm_layer=nn.BatchNorm2d)
+        self.l2norm = FeatureL2Norm()
+        self.correlation = FeatureCorrelation()
+        self.regression1 = FeatureRegression(input_nc=192, output_dim= 2 * 3, use_cuda=True)
+        self.affineGen = AffineGridGen(opt.fine_height, opt.fine_width, out_ch = 3)
 
+    #inputA: agnostic
+    #inputB: inshop cloth
+    def forward(self, inputA, inputB):
+        #First branch for perspective
+        featureA = self.extractionA(inputA)
+        featureB = self.extractionB(inputB)
+        featureA = self.l2norm(featureA)
+        featureB = self.l2norm(featureB)
+        correlation = self.correlation(featureA, featureB)
+        theta = self.regression1(correlation).reshape(featureA.shape[0],2,3)
+        # print("theta shape:",theta.shape)
+        grid = self.affineGen(theta)
+        Ipersp = F.grid_sample(inputB, grid, padding_mode='border')
+
+
+        return Ipersp, grid, theta
+    
 def save_checkpoint(model, save_path):
     if not os.path.exists(os.path.dirname(save_path)):
         os.makedirs(os.path.dirname(save_path))
