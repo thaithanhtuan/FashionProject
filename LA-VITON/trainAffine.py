@@ -12,7 +12,8 @@ from networks import AffineGMM, LAGMM, UnetGenerator, VGGLoss, load_checkpoint, 
 from tensorboardX import SummaryWriter
 from visualization import board_add_image, board_add_images
 # python trainAffine.py --name gmm_train_affine_nogic --stage GMM --workers 4 --save_count 5000 --shuffle
-
+from visualization import board_add_image, board_add_images, save_images
+# python trainAffine.py --name gmm_test_train_affine_nogic --stage GMM --workers 4 --save_count 5000 --shuffle
 
 def get_opt():
     parser = argparse.ArgumentParser()
@@ -64,7 +65,8 @@ def train_gmm(opt, train_loader, model, board):
     for step in range(opt.keep_step + opt.decay_step):
         iter_start_time = time.time()
         inputs = train_loader.next_batch()
-            
+
+        c_names = inputs['c_name']
         im = inputs['image'].cuda()
         im_pose = inputs['pose_image'].cuda()
         im_h = inputs['head'].cuda()
@@ -75,7 +77,7 @@ def train_gmm(opt, train_loader, model, board):
         im_c =  inputs['parse_cloth'].cuda()
         im_g = inputs['grid_image'].cuda()
             
-        Ipersp, grid, theta = model(agnostic, c)
+        grid, theta = model(agnostic, c)
         warped_cloth = F.grid_sample(c, grid, padding_mode='border')
         warped_mask = F.grid_sample(cm, grid, padding_mode='zeros')
         warped_grid = F.grid_sample(im_g, grid, padding_mode='zeros')
@@ -97,8 +99,12 @@ def train_gmm(opt, train_loader, model, board):
         optimizer.step()
             
         if (step+1) % opt.display_count == 0:
+            #print("theta:", theta.detach())
+            #print("image name:", c_names)
             board_add_images(board, 'combine', visuals, step+1)
             board.add_scalar('metric', loss.item(), step+1)
+            #save_images(warped_cloth.detach(), c_names, "./result/test/warpcloth")
+            #save_images(warped_grid.detach(), c_names, "./result/test/grid")
             #board.add_scalar('0.5*Lpersp', (0.5*Lpersp).item(), step+1)
             #board.add_scalar('40*Lgic', (40*Lgic).item(), step+1)
             #board.add_scalar('0.5*Lwarp', (0.5*Lwarp).item(), step+1)
