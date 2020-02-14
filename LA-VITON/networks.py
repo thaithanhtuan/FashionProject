@@ -95,7 +95,30 @@ class FeatureCorrelation(nn.Module):
         feature_mul = torch.bmm(feature_B,feature_A)
         correlation_tensor = feature_mul.view(b,h,w,h*w).transpose(2,3).transpose(1,2)
         return correlation_tensor
-    
+class FeatureRegressionAffine(nn.Module):
+    def __init__(self, output_dim=6, use_cuda=True, batch_normalization=True, kernel_sizes=[7,5,5], channels=[225,128,64]):
+        super(FeatureRegressionAffine, self).__init__()
+        num_layers = len(kernel_sizes)
+        nn_modules = list()
+        for i in range(num_layers-1): # last layer is linear
+            k_size = kernel_sizes[i]
+            ch_in = channels[i]
+            ch_out = channels[i+1]
+            nn_modules.append(nn.Conv2d(ch_in, ch_out, kernel_size=k_size, padding=0))
+            if batch_normalization:
+                nn_modules.append(nn.BatchNorm2d(ch_out))
+            nn_modules.append(nn.ReLU(inplace=True))
+        self.conv = nn.Sequential(*nn_modules)
+        self.linear = nn.Linear(ch_out * kernel_sizes[-1] * kernel_sizes[-1], output_dim)
+        if use_cuda:
+            self.conv.cuda()
+            self.linear.cuda()
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = x.view(x.size(0), -1)
+        x = self.linear(x)
+        return x    
 class FeatureRegression(nn.Module):
     def __init__(self, input_nc=512,output_dim=6, use_cuda=True):
         super(FeatureRegression, self).__init__()
@@ -122,7 +145,7 @@ class FeatureRegression(nn.Module):
 
     def forward(self, x):
         x = self.conv(x)
-        x = x.reshape(x.size(0), -1) #change from view to reshape Thai
+        x = x.view(x.size(0), -1) #change from view to reshape Thai
         x = self.linear(x)
         x = self.tanh(x)
         return x
@@ -139,7 +162,112 @@ class AffineGridGen(nn.Module):
         batch_size = theta.size()[0]
         out_size = torch.Size((batch_size,self.out_ch,self.out_h,self.out_w))
         return F.affine_grid(theta, out_size)
-        
+
+class AffineGridGenV2(nn.Module):
+    def __init__(self, out_h=256, out_w=192, out_ch = 3, use_cuda=True):
+        super(AffineGridGenV2, self).__init__()
+        self.out_h, self.out_w = out_h, out_w
+        self.use_cuda = use_cuda
+        self.out_ch = out_ch
+
+        # create grid in numpy
+        # self.grid = np.zeros( [self.out_h, self.out_w, 3], dtype=np.float32)
+        # sampling grid with dim-0 coords (Y)
+        self.grid_X, self.grid_Y = np.meshgrid(np.linspace(-1, 1, out_w), np.linspace(-1, 1, out_h))
+        # grid_X,grid_Y: size [1,H,W,1,1]
+        self.grid_X = torch.FloatTensor(self.grid_X).unsqueeze(0).unsqueeze(3)
+        self.grid_Y = torch.FloatTensor(self.grid_Y).unsqueeze(0).unsqueeze(3)
+        self.grid_X = Variable(self.grid_X, requires_grad=False)
+        self.grid_Y = Variable(self.grid_Y, requires_grad=False)
+        if use_cuda:
+            self.grid_X = self.grid_X.cuda()
+            self.grid_Y = self.grid_Y.cuda()
+
+    def forward(self, theta):
+        b = theta.size(0)
+        if not theta.size() == (b, 6):
+            theta = theta.view(b, 6)
+            theta = theta.contiguous()
+
+        t0 = theta[:, 0].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        t1 = theta[:, 1].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        t2 = theta[:, 2].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        t3 = theta[:, 3].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        t4 = theta[:, 4].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        t5 = theta[:, 5].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+
+        """-------------- Thai ----------------
+        Redefine 6 parameters to the transformation matrix
+        1. Scale sx, sy:
+        t0: from -1 to 1, sx: scale to x axis 0 <= 5*(t0+1) <= 10: from keep same size to minimize 10 times on x 
+        t4: from -1 to 1, sx: scale to y axis 0 <= 5*(t4+1) <= 10: from keep same size to minimize 10 times on y
+        2. rotation:
+        t1: rotation angle: from -1 <= t1 <= 1 ==> -180/pi <= degree <= 180/pi
+        3. translation        
+        t2:  -1<=t2<=1 --> move half image to left (t2 = -1), dont move (t2=0), move half image to right (t2=1)
+        t5: -1<=t5<=1 --> move half image down (t5 = -1), don't move(t5=0), move half image up(t5=1)
+        4. shear:
+        t3: -1<=t3<=1 : x - y <= x <= x + y 
+        """
+        t0 = 5 * (t0+1)
+        t4 = 5 * (t4+1)
+        grid_X = expand_dim(self.grid_X, 0, b)
+        grid_Y = expand_dim(self.grid_Y, 0, b)
+        grid_Xp = grid_X * t0 * torch.cos(t1) + grid_Y * t0 * (t3 * torch.cos(t1) - torch.sin(t1)) + t2
+        grid_Yp = grid_X * torch.sin(t1) * t4 + grid_Y * t4 * (t3 * torch.sin(t1) + torch.cos(t1)) + t5
+
+
+        return torch.cat((grid_Xp, grid_Yp), self.out_ch)
+
+
+class HomographyGridGen(nn.Module):
+    def __init__(self, out_h=240, out_w=240, use_cuda=True):
+        super(HomographyGridGen, self).__init__()
+        self.out_h, self.out_w = out_h, out_w
+        self.use_cuda = use_cuda
+
+        # create grid in numpy
+        # self.grid = np.zeros( [self.out_h, self.out_w, 3], dtype=np.float32)
+        # sampling grid with dim-0 coords (Y)
+        self.grid_X, self.grid_Y = np.meshgrid(np.linspace(-1, 1, out_w), np.linspace(-1, 1, out_h))
+        # grid_X,grid_Y: size [1,H,W,1,1]
+        self.grid_X = torch.FloatTensor(self.grid_X).unsqueeze(0).unsqueeze(3)
+        self.grid_Y = torch.FloatTensor(self.grid_Y).unsqueeze(0).unsqueeze(3)
+        self.grid_X = Variable(self.grid_X, requires_grad=False)
+        self.grid_Y = Variable(self.grid_Y, requires_grad=False)
+        if use_cuda:
+            self.grid_X = self.grid_X.cuda()
+            self.grid_Y = self.grid_Y.cuda()
+
+    def forward(self, theta):
+        b = theta.size(0)
+        if theta.size(1) == 9:
+            H = theta
+        else:
+            H = homography_mat_from_4_pts(theta)
+        h0 = H[:, 0].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        h1 = H[:, 1].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        h2 = H[:, 2].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        h3 = H[:, 3].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        h4 = H[:, 4].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        h5 = H[:, 5].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        h6 = H[:, 6].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        h7 = H[:, 7].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        h8 = H[:, 8].unsqueeze(1).unsqueeze(2).unsqueeze(3)
+
+        grid_X = expand_dim(self.grid_X, 0, b);
+        grid_Y = expand_dim(self.grid_Y, 0, b);
+
+        grid_Xp = grid_X * h0 + grid_Y * h1 + h2
+        grid_Yp = grid_X * h3 + grid_Y * h4 + h5
+        k = grid_X * h6 + grid_Y * h7 + h8
+
+        grid_Xp /= k;
+        grid_Yp /= k
+
+        return torch.cat((grid_Xp, grid_Yp), 3)
+    
+    
 class TpsGridGen(nn.Module):
     def __init__(self, out_h=256, out_w=192, use_regular_grid=True, grid_size=3, reg_factor=0, use_cuda=True):
         super(TpsGridGen, self).__init__()
@@ -546,8 +674,10 @@ class AffineGMM(nn.Module):
         self.extractionB = FeatureExtraction(3, ngf=64, n_layers=3, norm_layer=nn.BatchNorm2d)
         self.l2norm = FeatureL2Norm()
         self.correlation = FeatureCorrelation()
-        self.regression1 = FeatureRegression(input_nc=192, output_dim= 2 * 3, use_cuda=True)
-        self.affineGen = AffineGridGen(opt.fine_height, opt.fine_width, out_ch = 3)
+        self.regression1 = FeatureRegression(input_nc=192, output_dim=2 * 3, use_cuda=True)
+        # self.regression1 = FeatureRegressionAffine(input_nc=192, output_dim= 2 * 3, use_cuda=True)
+        self.affineGen = AffineGridGenV2(opt.fine_height, opt.fine_width, out_ch=3)
+        # self.affineGen = AffineGridGen(opt.fine_height, opt.fine_width, out_ch = 3)
 
     #inputA: agnostic
     #inputB: inshop cloth
@@ -558,14 +688,15 @@ class AffineGMM(nn.Module):
         featureA = self.l2norm(featureA)
         featureB = self.l2norm(featureB)
         correlation = self.correlation(featureA, featureB)
-        theta = self.regression1(correlation).reshape(featureA.shape[0],2,3)
+        theta = self.regression1(correlation)
+        theta = theta.contiguous()
+        theta = theta.view(-1, 2, 3)
         # print("theta shape:",theta.shape)
         grid = self.affineGen(theta)
-        Ipersp = F.grid_sample(inputB, grid, padding_mode='border')
+        #Ipersp = F.grid_sample(inputB, grid, padding_mode='border')
 
 
-        return Ipersp, grid, theta
-    
+        return grid, theta
 def save_checkpoint(model, save_path):
     if not os.path.exists(os.path.dirname(save_path)):
         os.makedirs(os.path.dirname(save_path))
