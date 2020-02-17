@@ -7,7 +7,7 @@ import argparse
 import os
 import time
 from cp_dataset import CPDataset, CPDataLoader
-from networks import LAGMM, UnetGenerator, VGGLoss, load_checkpoint, save_checkpoint
+from networks import LAGMM, UnetGenerator, VGGLoss, load_checkpoint, save_checkpoint, GicLoss
 
 from tensorboardX import SummaryWriter
 from visualization import board_add_image, board_add_images
@@ -54,6 +54,7 @@ def train_gmm(opt, train_loader, model, board):
 
     # criterion
     criterionL1 = nn.L1Loss()
+    gicloss = GicLoss(opt)
     
     # optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=opt.lr, betas=(0.5, 0.999))
@@ -73,43 +74,26 @@ def train_gmm(opt, train_loader, model, board):
         cm = inputs['cloth_mask'].cuda()
         im_c =  inputs['parse_cloth'].cuda()
         im_g = inputs['grid_image'].cuda()
-            
-        grid, theta, Ipersp = model(agnostic, c)
-        warped_cloth = F.grid_sample(c, grid, padding_mode='zeros')
-        warped_mask = F.grid_sample(cm, grid, padding_mode='zeros')
-        warped_grid = F.grid_sample(im_g, grid, padding_mode='zeros')
 
-        visuals = [ [im_h, shape, im_pose], 
-                   [c, warped_cloth, im_c], 
-                   [warped_grid, (warped_cloth+im)*0.5, im]]
+        gridtps, thetatps, Ipersp, gridaffine, thetaaffine = model(agnostic, c)
+        warped_cloth = F.grid_sample(c, gridtps, padding_mode='border')
+        warped_mask = F.grid_sample(cm, gridtps, padding_mode='zeros')
+        warped_grid_affine = F.grid_sample(im_g, gridaffine, padding_mode='zeros')
+        warped_grid = F.grid_sample(im_g, gridtps, padding_mode='zeros')
+
+        visuals = [[im_h, shape, im_pose],
+                   [c, warped_cloth, im_c],
+                   [warped_grid, (warped_cloth * 0.7 + im * 0.3), im],
+                   [Ipersp, (Ipersp * 0.7 + im * 0.3), warped_grid_affine]]
 
         Lwarp = criterionL1(warped_cloth, im_c)
         Lpersp = criterionL1(Ipersp, im_c)
-
+        Lgic = gicloss(gridtps)
+        Lgic = Lgic / (gridtps.shape[0] * gridtps.shape[1] * gridtps.shape[2])
         # shape of grid: N, Hout, Wout,2: N x 5 x 5 x 2
         # grid shape: N x 5 x 5 x 2
-        Gx = grid[:, :, :, 0]
 
-        Gy = grid[:, :, :, 1]
-        Lgic = 0
-        for n in range(Gx.shape[0]):
-            for y in range(1, opt.grid_size - 2):
-                for x in range(1, opt.grid_size - 2):
-                    # dt1 = DT|Gx(n,x,y),Gx(n,x+1,y)|
-                    dt1 = DT(Gx[n, y, x], Gy[n, y, x], Gx[n, y, x + 1], Gy[n, y, x + 1])
-                    # dt2 = DT|Gx(n,x,y),Gx(n,x-1,y)|
-                    dt2 = DT(Gx[n, y, x], Gy[n, y, x], Gx[n, y, x - 1], Gy[n, y, x - 1])
-                    # dt3 = DT|Gy(n,x,y),Gy(n,x,y+1)|
-                    dt3 = DT(Gx[n, y, x], Gy[n, y, x], Gx[n, y + 1, x], Gy[n, y + 1, x])
-                    # dt4 = DT|Gy(n,x,y),Gy(n,x,y-1)|
-                    dt4 = DT(Gx[n, y, x], Gy[n, y, x], Gx[n, y - 1, x], Gy[n, y - 1, x])
-
-                    loss = torch.abs(dt1 - dt2) + torch.abs(dt3 - dt4)
-
-                    Lgic = Lgic + loss
-
-
-        loss = Lpersp + Lwarp + Lgic
+        loss = 0.5*Lpersp + 0.5*Lwarp + 40*Lgic
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -117,11 +101,11 @@ def train_gmm(opt, train_loader, model, board):
         if (step+1) % opt.display_count == 0:
             board_add_images(board, 'combine', visuals, step+1)
             board.add_scalar('metric', loss.item(), step+1)
-            board.add_scalar('Lpersp', Lpersp.item(), step+1)
-            board.add_scalar('Lgic', Lgic.item(), step+1)
-            board.add_scalar('Lwarp', Lwarp.item(), step+1)
+            board.add_scalar('0.5*Lpersp', (0.5*Lpersp).item(), step+1)
+            board.add_scalar('40*Lgic', (40*Lgic).item(), step+1)
+            board.add_scalar('0.5*Lwarp', (0.5*Lwarp).item(), step+1)
             t = time.time() - iter_start_time
-            print('step: %8d, time: %.3f, loss: %4f, Lgic: %.8f, Lpersp: %.6f, Lwarp: %.6f' % (step+1, t, loss.item(), Lgic.item(), Lpersp.item(), Lwarp.item()), flush=True)
+            print('step: %8d, time: %.3f, loss: %4f, 40*Lgic: %.8f, 0.5*Lpersp: %.6f, 0.5*Lwarp: %.6f' % (step+1, t, loss.item(), (40*Lgic).item(), (0.5*Lpersp).item(), (0.5*Lwarp).item()), flush=True)
 
         if (step+1) % opt.save_count == 0:
             save_checkpoint(model, os.path.join(opt.checkpoint_dir, opt.name, 'step_%06d.pth' % (step+1)))
