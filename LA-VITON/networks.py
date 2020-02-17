@@ -161,6 +161,7 @@ class FeatureRegression(nn.Module):
 
     def forward(self, x):
         x = self.conv(x)
+        x = x.contiguous()
         x = x.view(x.size(0), -1)  # change from view to reshape Thai
         x = self.linear(x)
         x = self.tanh(x)
@@ -696,7 +697,7 @@ class LAGMM(nn.Module):
 
         thetatps = self.regression2(correlation2)
         gridtps = self.gridGen(thetatps)
-        return gridtps, thetatps, Ipersp, gridaffine, Iperspaffine
+        return gridtps, thetatps, Ipersp, gridaffine, thetaaffine
 
 
 class AffineGMM(nn.Module):
