@@ -42,7 +42,8 @@ def test_gmm(opt, test_loader, model, board):
     model.eval()
 
     base_name = os.path.basename(opt.checkpoint)
-    save_dir = os.path.join(opt.result_dir, base_name, opt.datamode)
+    name = opt.name
+    save_dir = os.path.join(opt.result_dir, name, opt.datamode)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     warp_cloth_dir = os.path.join(save_dir, 'warp-cloth')
@@ -57,10 +58,14 @@ def test_gmm(opt, test_loader, model, board):
     Ipersp_dir = os.path.join(save_dir, 'Ipersp-cloth')
     if not os.path.exists(Ipersp_dir):
         os.makedirs(Ipersp_dir)
+    warped_gridaffine_dir = os.path.join(save_dir, 'warped_gridaffine')
+    if not os.path.exists(warped_gridaffine_dir):
+        os.makedirs(warped_gridaffine_dir)
 
     for step, inputs in enumerate(test_loader.data_loader):
         iter_start_time = time.time()
-        
+
+        im_names = inputs['im_name']
         c_names = inputs['c_name']
         im = inputs['image'].cuda()
         im_pose = inputs['pose_image'].cuda()
@@ -71,20 +76,25 @@ def test_gmm(opt, test_loader, model, board):
         cm = inputs['cloth_mask'].cuda()
         im_c =  inputs['parse_cloth'].cuda()
         im_g = inputs['grid_image'].cuda()
-            
-        grid, theta, Ipersp = model(agnostic, c)
-        warped_cloth = F.grid_sample(c, grid, padding_mode='border')
-        warped_mask = F.grid_sample(cm, grid, padding_mode='zeros')
-        warped_grid = F.grid_sample(im_g, grid, padding_mode='zeros')
 
-        visuals = [ [im_h, shape, im_pose], 
-                   [c, warped_cloth, im_c], 
-                   [warped_grid, (warped_cloth+im)*0.5, im]]
+        gridtps, thetatps, Ipersp, gridaffine, thetaaffine = model(agnostic, c)
+        warped_cloth = F.grid_sample(c, gridtps, padding_mode='border')  #
+        warped_maskaffine = F.grid_sample(cm, gridaffine, padding_mode='zeros')
+        warped_mask = F.grid_sample(warped_maskaffine, gridtps, padding_mode='zeros')
+
+        warped_gridaffine = F.grid_sample(im_g, gridaffine, padding_mode='zeros')
+        warped_grid = F.grid_sample(im_g, gridtps, padding_mode='zeros')
+
+        visuals = [[im_h, shape, im_pose],
+                   [c, warped_cloth, im_c],
+                   [warped_grid, (warped_cloth * 0.7 + im * 0.3), im],
+                   [Ipersp, (Ipersp * 0.7 + im * 0.3), warped_gridaffine]]
         
-        save_images(warped_cloth, c_names, warp_cloth_dir) 
-        save_images(warped_mask*2-1, c_names, warp_mask_dir)
-        save_images(warped_grid, c_names, warp_grid_dir)
-        save_images(Ipersp, c_names, Ipersp_dir)
+        save_images(warped_cloth, im_names, warp_cloth_dir)
+        save_images(warped_mask*2-1, im_names, warp_mask_dir)
+        save_images(warped_grid, im_names, warp_grid_dir)
+        save_images(Ipersp, im_names, Ipersp_dir)
+        save_images(warped_maskaffine, im_names, warped_gridaffine_dir)
 
 
         if (step+1) % opt.display_count == 0:
