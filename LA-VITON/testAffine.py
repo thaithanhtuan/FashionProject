@@ -60,6 +60,7 @@ def test_gmm(opt, test_loader, model, board):
         iter_start_time = time.time()
         
         c_names = inputs['c_name']
+        im_names = inputs['im_name']
         im = inputs['image'].cuda()
         im_pose = inputs['pose_image'].cuda()
         im_h = inputs['head'].cuda()
@@ -79,9 +80,9 @@ def test_gmm(opt, test_loader, model, board):
                    [c, warped_cloth, im_c], 
                    [warped_grid, (warped_cloth+im)*0.5, im]]
         
-        save_images(warped_cloth, c_names, warp_cloth_dir) 
-        save_images(warped_mask*2-1, c_names, warp_mask_dir)
-        save_images(warped_grid, c_names, warp_grid_dir)
+        save_images(warped_cloth, im_names, warp_cloth_dir)
+        save_images(warped_mask*2-1, im_names, warp_mask_dir)
+        save_images(warped_grid, im_names, warp_grid_dir)
 
 
         if (step+1) % opt.display_count == 0:
