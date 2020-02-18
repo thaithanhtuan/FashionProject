@@ -13,7 +13,6 @@ from tensorboardX import SummaryWriter
 from visualization import board_add_image, board_add_images
 # python trainAffine.py --name gmm_train_affine_nogic --stage GMM --workers 4 --save_count 5000 --shuffle
 from visualization import board_add_image, board_add_images, save_images
-# python trainAffine.py --name gmm_test_train_affine_nogic --stage GMM --workers 4 --save_count 5000 --shuffle
 
 def get_opt():
     parser = argparse.ArgumentParser()
