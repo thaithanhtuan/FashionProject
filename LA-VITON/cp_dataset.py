@@ -49,7 +49,7 @@ class CPDataset(data.Dataset):
     def __getitem__(self, index):
         c_name = self.c_names[index]
         im_name = self.im_names[index]
-
+        # c_name = im_name.split('_')[0] + "_1.jpg" #same pairs
         # cloth image & cloth mask
         if self.stage == 'GMM':
             c = Image.open(osp.join(self.data_path, 'cloth', c_name))
