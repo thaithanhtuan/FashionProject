@@ -82,7 +82,7 @@ def test_gmm(opt, test_loader, model, board):
         visuals = [ [im_h, shape, im_pose], 
                     [c, warped_cloth, im_c],
                     [warped_grid, (warped_cloth+im)*0.5, im],
-                    [cm * 2 - 1, pcm * 2 - 1, im]]
+                    [cm * 2 - 1, warped_mask*2-1, pcm*2-1]]
         
         save_images(warped_cloth, im_names, warp_cloth_dir)
         save_images(warped_mask*2-1, im_names, warp_mask_dir)
