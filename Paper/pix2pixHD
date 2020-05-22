@@ -1,0 +1,14 @@
+Paper Title: High-Resolution Image Synthesis and Semantic Manipulation with Conditional GANs
+
+Author: 
+Ting-Chun Wang1 
+Ming-Yu Liu1
+Jun-Yan Zhu2 
+Andrew Tao1
+Jan Kautz1 
+Bryan Catanzaro1
+1NVIDIA Corporation 2UC Berkeley
+
+Implementation: https://github.com/NVIDIA/pix2pixHD
+
+Note:
