@@ -24,10 +24,12 @@ Question:
 1. Did pix2pixHD use style loss?
 2. How to append G2 into G1 and trained jointly?
 3. Why output of G1 sum to G2 Front --> Why not concat??? They want to intergrating the global information from G1 to G2.
+Unet structure, the channels from encoder and decoder should be the same ---> can we try to do concat? Is there any different?
 4. Why do they use two scale for Generator? --> Reference [3], two-scale is often enough.
 5. WHy do they use 3 disctiminators D1, D2, D3?
 6. What do they mean:"without the multi -scale discriminator, we observe that many repeated patterns often appear in the generated images"? repeated patterns???
-
+7. Do we need instance maps inside our VTON? hair(hair, background), face (eyes, nose, ear, hair, skin,...) background(...). Is there anyway to make this better?
+8. what is oracle in table 1? large margin? missing some thing?
 
 Idea:
 1. For high resolution, discriminator needs to have a large receptive field.
