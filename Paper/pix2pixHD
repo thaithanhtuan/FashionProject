@@ -12,3 +12,30 @@ Bryan Catanzaro1
 Implementation: https://github.com/NVIDIA/pix2pixHD
 
 Note:
++Related work:
+++Image to image translation: L1 loss leads to blurry images.
++3. Instance Level Image synthesis
+++3.2 Improving photorealism and réolution
+No G3 in Figure 3.
+Global generator is built on the architecture proposed by Johnson et al. which has been proven successful for neural style transfer on images up to 512 x 512
+Only adding discriminator on bigger resolution.
+
+Question:
+1. Did pix2pixHD use style loss?
+2. How to append G2 into G1 and trained jointly?
+3. Why output of G1 sum to G2 Front --> Why not concat??? They want to intergrating the global information from G1 to G2.
+4. Why do they use two scale for Generator? --> Reference [3], two-scale is often enough.
+5. WHy do they use 3 disctiminators D1, D2, D3?
+6. What do they mean:"without the multi -scale discriminator, we observe that many repeated patterns often appear in the generated images"? repeated patterns???
+
+
+Idea:
+1. For high resolution, discriminator needs to have a large receptive field.
+-->Deeper network
+-->Larger convolutional kernels
+But 
++increase the network capacity and potentially cause overfitting 
++Demand a larger memory footprint for training, especially for Hight resolution image generation.
+-->The author used multi scale discriminators (3 networks).
+HOW ABOUT USING SINGLE NETWORK WITH DILATED CONVOLUTIONAL NN NETWORK? --> This can be paper.
+
